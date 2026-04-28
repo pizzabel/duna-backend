@@ -1,0 +1,308 @@
+// D-una · Marketplace P2P Hiperlocal
+// Prisma Schema — PostgreSQL 16 + PostGIS
+// Nota: los campos GEOGRAPHY(POINT) se manejan como campos RAW en PostGIS
+// y se definen con extensión en la migración SQL directa.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis, pgcrypto, pg_trgm]
+}
+
+// ─────────────────────────────────────────────
+// USUARIOS
+// ─────────────────────────────────────────────
+model User {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone          String   @unique @db.VarChar(20)
+  phoneVerified  Boolean  @default(false)
+  email          String?  @unique @db.VarChar(255)
+  fullName       String   @db.VarChar(150)
+  username       String   @unique @db.VarChar(40)
+  avatarUrl      String?
+  bio            String?
+  // location se gestiona como columna PostGIS via SQL raw (GEOGRAPHY POINT)
+  neighborhood   String?  @db.VarChar(100)
+  city           String   @default("Bogotá") @db.VarChar(100)
+  kycLevel       Int      @default(0) @db.SmallInt  // 0=ninguno 1=teléfono 2=documento
+  ratingAvg      Decimal  @default(0) @db.Decimal(3, 2)
+  ratingCount    Int      @default(0)
+  riskScore      Int      @default(0) @db.SmallInt  // 0=limpio 100=máximo riesgo
+  status         UserStatus @default(ACTIVE)
+  passwordHash   String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relaciones
+  posts          Post[]
+  buyerTxs       Transaction[] @relation("BuyerTransactions")
+  sellerTxs      Transaction[] @relation("SellerTransactions")
+  sentMessages   Message[]
+  buyerChats     Chat[]   @relation("BuyerChats")
+  sellerChats    Chat[]   @relation("SellerChats")
+  reviewsGiven   Review[] @relation("ReviewsGiven")
+  reviewsReceived Review[] @relation("ReviewsReceived")
+  disputesOpened Dispute[] @relation("DisputesOpened")
+  txEvents       TransactionEvent[]
+
+  @@index([phone])
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+// ─────────────────────────────────────────────
+// CATEGORÍAS
+// ─────────────────────────────────────────────
+model Category {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name     String  @db.VarChar(80)
+  slug     String  @unique @db.VarChar(80)
+  icon     String? @db.VarChar(10)
+  parentId String? @db.Uuid
+
+  posts Post[]
+
+  @@map("categories")
+}
+
+// ─────────────────────────────────────────────
+// PUBLICACIONES
+// ─────────────────────────────────────────────
+model Post {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sellerId         String      @db.Uuid
+  seller           User        @relation(fields: [sellerId], references: [id])
+  title            String      @db.VarChar(120)
+  description      String
+  categoryId       String      @db.Uuid
+  category         Category    @relation(fields: [categoryId], references: [id])
+  priceCop         BigInt
+  condition        PostCondition
+  // location PostGIS gestionado via SQL raw
+  status           PostStatus  @default(ACTIVE)
+  viewCount        Int         @default(0)
+  interactionScore Decimal     @default(0) @db.Decimal(10, 2)
+  createdAt        DateTime    @default(now())
+  soldAt           DateTime?
+
+  images       PostImage[]
+  chats        Chat[]
+  transactions Transaction[]
+
+  @@index([sellerId])
+  @@map("posts")
+}
+
+enum PostCondition {
+  NEW
+  LIKE_NEW
+  USED
+  FOR_PARTS
+}
+
+enum PostStatus {
+  ACTIVE
+  SOLD
+  PAUSED
+  REMOVED
+}
+
+model PostImage {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId   String @db.Uuid
+  post     Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  url      String
+  position Int    @default(0) @db.SmallInt
+
+  @@map("post_images")
+}
+
+// ─────────────────────────────────────────────
+// TRANSACCIONES (máquina de estados)
+// ─────────────────────────────────────────────
+model Transaction {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId           String            @db.Uuid
+  post             Post              @relation(fields: [postId], references: [id])
+  buyerId          String            @db.Uuid
+  buyer            User              @relation("BuyerTransactions", fields: [buyerId], references: [id])
+  sellerId         String            @db.Uuid
+  seller           User              @relation("SellerTransactions", fields: [sellerId], references: [id])
+  amountCop        BigInt
+  commissionCop    BigInt
+  sellerPayoutCop  BigInt
+  status           TransactionStatus @default(PENDING_PAYMENT)
+  paymentProvider  String?           @db.VarChar(30)  // wompi|payu
+  providerTxId     String?           @db.VarChar(100)
+  paymentMethod    String?           @db.VarChar(30)  // pse|card|nequi|daviplata
+  autoReleaseAt    DateTime?
+  releasedAt       DateTime?
+  refundedAt       DateTime?
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  events           TransactionEvent[]
+  disputes         Dispute[]
+  reviews          Review[]
+
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+  @@map("transactions")
+}
+
+enum TransactionStatus {
+  PENDING_PAYMENT
+  PAID_HELD
+  DELIVERED
+  RELEASED
+  DISPUTED
+  REFUNDED
+  CANCELLED
+}
+
+model TransactionEvent {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String      @db.Uuid
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  eventType     String      @db.VarChar(50)
+  payload       Json?
+  actorId       String?     @db.Uuid
+  actor         User?       @relation(fields: [actorId], references: [id])
+  createdAt     DateTime    @default(now())
+
+  @@index([transactionId])
+  @@map("transaction_events")
+}
+
+// ─────────────────────────────────────────────
+// CHAT Y MENSAJES
+// ─────────────────────────────────────────────
+model Chat {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId    String   @db.Uuid
+  post      Post     @relation(fields: [postId], references: [id])
+  buyerId   String   @db.Uuid
+  buyer     User     @relation("BuyerChats", fields: [buyerId], references: [id])
+  sellerId  String   @db.Uuid
+  seller    User     @relation("SellerChats", fields: [sellerId], references: [id])
+  createdAt DateTime @default(now())
+
+  messages  Message[]
+
+  @@unique([postId, buyerId])
+  @@map("chats")
+}
+
+model Message {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatId       String   @db.Uuid
+  chat         Chat     @relation(fields: [chatId], references: [id])
+  senderId     String   @db.Uuid
+  sender       User     @relation(fields: [senderId], references: [id])
+  body         String                       // cuerpo original (solo admins/antifraude lo ven)
+  flagged      Boolean  @default(false)
+  flagReasons  String[]                     // ['phone_number', 'escape_keyword:whatsapp', ...]
+  redactedBody String?                      // versión censurada mostrada al destinatario
+  createdAt    DateTime @default(now())
+  // INMUTABLE — ver trigger SQL en migración
+
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+// ─────────────────────────────────────────────
+// DISPUTAS
+// ─────────────────────────────────────────────
+model Dispute {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId   String        @db.Uuid
+  transaction     Transaction   @relation(fields: [transactionId], references: [id])
+  openedById      String        @db.Uuid
+  openedBy        User          @relation("DisputesOpened", fields: [openedById], references: [id])
+  reason          DisputeReason
+  description     String
+  status          DisputeStatus @default(OPEN)
+  resolutionNotes String?
+  resolvedById    String?       @db.Uuid
+  createdAt       DateTime      @default(now())
+  resolvedAt      DateTime?
+
+  evidence        DisputeEvidence[]
+
+  @@map("disputes")
+}
+
+enum DisputeReason {
+  NOT_DELIVERED
+  DIFFERENT_ITEM
+  DAMAGED
+  COUNTERFEIT
+  OTHER
+}
+
+enum DisputeStatus {
+  OPEN
+  EVIDENCE_REQUESTED
+  UNDER_REVIEW
+  RESOLVED_REFUND
+  RESOLVED_RELEASE
+  RESOLVED_PARTIAL
+}
+
+model DisputeEvidence {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId   String   @db.Uuid
+  dispute     Dispute  @relation(fields: [disputeId], references: [id])
+  submittedById String @db.Uuid
+  type        String   @db.VarChar(20)  // image|text|chat_ref
+  content     String
+  createdAt   DateTime @default(now())
+
+  @@map("dispute_evidence")
+}
+
+// ─────────────────────────────────────────────
+// CALIFICACIONES
+// ─────────────────────────────────────────────
+model Review {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String      @db.Uuid
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  reviewerId    String      @db.Uuid
+  reviewer      User        @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  revieweeId    String      @db.Uuid
+  reviewee      User        @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  rating        Int         @db.SmallInt
+  comment       String?
+  createdAt     DateTime    @default(now())
+
+  @@unique([transactionId, reviewerId])
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────────
+// OTP TOKENS
+// ─────────────────────────────────────────────
+model OtpToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone     String   @db.VarChar(20)
+  code      String   @db.VarChar(6)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone, used])
+  @@map("otp_tokens")
+}

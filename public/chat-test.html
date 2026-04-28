@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>D-una · Chat WebSocket Test</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0A0A0A; color: #F0EDE8; display: flex; height: 100vh; }
+
+    /* PANEL IZQUIERDO — configuración */
+    .sidebar {
+      width: 320px; flex-shrink: 0;
+      background: #141414; border-right: 1px solid #222;
+      padding: 20px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .logo { font-size: 22px; font-weight: 700; color: #FF5500; margin-bottom: 4px; }
+    .subtitle { font-size: 12px; color: #666; }
+    label { font-size: 12px; color: #888; display: block; margin-bottom: 4px; }
+    input, textarea {
+      width: 100%; background: #1E1E1E; border: 1px solid #333;
+      border-radius: 8px; padding: 8px 10px; color: #F0EDE8;
+      font-size: 13px; font-family: inherit; outline: none;
+    }
+    input:focus, textarea:focus { border-color: #FF5500; }
+    .btn {
+      width: 100%; padding: 10px; border-radius: 8px; border: none;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #FF5500; color: white; }
+    .btn-secondary { background: #1E1E1E; color: #F0EDE8; border: 1px solid #333; }
+    .btn-danger { background: #7F1D1D; color: #FCA5A5; }
+    .status-dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; margin-right: 6px; background: #666;
+    }
+    .status-dot.connected { background: #22C55E; }
+    .status-dot.disconnected { background: #EF4444; }
+    .status-text { font-size: 13px; color: #888; }
+    .divider { border: none; border-top: 1px solid #222; margin: 4px 0; }
+    .section-title { font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.8px; }
+
+    /* PANEL DERECHO — chat */
+    .chat-area { flex: 1; display: flex; flex-direction: column; }
+    .chat-header {
+      padding: 14px 20px; background: #141414; border-bottom: 1px solid #222;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .chat-header h2 { font-size: 15px; font-weight: 600; }
+    .chat-id-display { font-size: 11px; color: #555; font-family: monospace; }
+    .messages {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .msg {
+      max-width: 70%; padding: 10px 14px; border-radius: 16px;
+      font-size: 13px; line-height: 1.5; word-break: break-word;
+    }
+    .msg.sent { align-self: flex-end; background: #FF5500; color: white; border-radius: 16px 4px 16px 16px; }
+    .msg.recv { align-self: flex-start; background: #1E1E1E; color: #F0EDE8; border-radius: 4px 16px 16px 16px; }
+    .msg.flagged { background: #422006; border: 1px solid #92400E; }
+    .msg-meta { font-size: 10px; opacity: 0.6; margin-top: 4px; }
+    .flag-warning {
+      align-self: center; background: #422006; border: 1px solid #92400E;
+      border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #FCD34D;
+      text-align: center; max-width: 80%;
+    }
+    .typing-indicator {
+      align-self: flex-start; background: #1E1E1E; border-radius: 16px;
+      padding: 10px 14px; font-size: 12px; color: #888;
+      display: none;
+    }
+    .input-area {
+      padding: 12px 16px; background: #141414; border-top: 1px solid #222;
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+    .msg-input {
+      flex: 1; resize: none; min-height: 40px; max-height: 100px;
+      border-radius: 20px; padding: 10px 16px; font-size: 13px;
+    }
+    .send-btn {
+      width: 40px; height: 40px; border-radius: 50%; background: #FF5500;
+      border: none; color: white; font-size: 16px; cursor: pointer; flex-shrink: 0;
+    }
+    .send-btn:hover { background: #CC4400; }
+    .log-area {
+      height: 140px; overflow-y: auto; background: #0D0D0D;
+      border-top: 1px solid #222; padding: 10px 16px;
+      font-family: monospace; font-size: 11px; color: #555;
+    }
+    .log-entry { margin-bottom: 3px; }
+    .log-entry.ok  { color: #22C55E; }
+    .log-entry.err { color: #EF4444; }
+    .log-entry.warn { color: #F59E0B; }
+    .log-entry.info { color: #60A5FA; }
+    .antifraude-banner {
+      background: rgba(255,85,0,0.08); border-top: 1px solid rgba(255,85,0,0.2);
+      padding: 6px 16px; font-size: 11px; color: rgba(255,85,0,0.6); text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div>
+    <div class="logo">D-una</div>
+    <div class="subtitle">Chat WebSocket · Test Client</div>
+  </div>
+
+  <hr class="divider">
+  <div class="section-title">Conexión</div>
+
+  <div>
+    <label>Access Token (JWT)</label>
+    <textarea id="tokenInput" rows="3" placeholder="eyJhbGci..."></textarea>
+  </div>
+
+  <div>
+    <label>Servidor</label>
+    <input id="serverUrl" value="http://localhost:3000" />
+  </div>
+
+  <button class="btn btn-primary" onclick="connect()">Conectar</button>
+  <button class="btn btn-danger" onclick="disconnect()">Desconectar</button>
+
+  <div>
+    <span class="status-dot disconnected" id="statusDot"></span>
+    <span class="status-text" id="statusText">Desconectado</span>
+  </div>
+
+  <hr class="divider">
+  <div class="section-title">Chat</div>
+
+  <div>
+    <label>Chat ID</label>
+    <input id="chatIdInput" placeholder="UUID del chat" />
+  </div>
+
+  <hr class="divider">
+  <div class="section-title">Prueba antifraude</div>
+  <p style="font-size:12px;color:#666;line-height:1.5">Envía estos mensajes para ver el pipeline en acción:</p>
+
+  <button class="btn btn-secondary" onclick="sendTest('Mi whatsapp es 3001234567, escríbeme por ahí')">
+    📱 Teléfono + WhatsApp
+  </button>
+  <button class="btn btn-secondary" onclick="sendTest('Te pago en efectivo, fuera de la app')">
+    💰 Pago en efectivo
+  </button>
+  <button class="btn btn-secondary" onclick="sendTest('Escríbeme al correo test@gmail.com')">
+    📧 Email
+  </button>
+  <button class="btn btn-secondary" onclick="sendTest('Mira este link: http://estafa.com/producto')">
+    🔗 URL externa
+  </button>
+  <button class="btn btn-secondary" onclick="sendTest('Hola, sigue disponible el producto?')">
+    ✅ Mensaje normal
+  </button>
+</div>
+
+<!-- CHAT AREA -->
+<div class="chat-area">
+  <div class="chat-header">
+    <h2>💬 Chat en tiempo real</h2>
+    <span class="chat-id-display" id="chatIdDisplay">Sin chat seleccionado</span>
+  </div>
+
+  <div class="messages" id="messages">
+    <div style="text-align:center;color:#444;font-size:13px;margin-top:40px">
+      Conecta con tu token JWT y selecciona un Chat ID para empezar
+    </div>
+  </div>
+
+  <div class="typing-indicator" id="typingIndicator">
+    ✏️ El otro usuario está escribiendo...
+  </div>
+
+  <div class="antifraude-banner">
+    🛡️ Pipeline antifraude activo · Los mensajes con contenido bloqueado se muestran redactados al receptor
+  </div>
+
+  <div class="input-area">
+    <textarea
+      class="msg-input"
+      id="msgInput"
+      placeholder="Escribe un mensaje..."
+      onkeydown="handleKey(event)"
+      oninput="handleTyping()"
+    ></textarea>
+    <button class="send-btn" onclick="sendMessage()">➤</button>
+  </div>
+
+  <div class="log-area" id="logArea">
+    <div class="log-entry info">▶ D-una WebSocket Test Client listo</div>
+  </div>
+</div>
+
+<script>
+  let socket = null;
+  let typingTimeout = null;
+
+  function log(msg, type='info') {
+    const area = document.getElementById('logArea');
+    const div  = document.createElement('div');
+    div.className = `log-entry ${type}`;
+    div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+  }
+
+  function setStatus(connected) {
+    const dot  = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    dot.className  = `status-dot ${connected ? 'connected' : 'disconnected'}`;
+    text.textContent = connected ? 'Conectado' : 'Desconectado';
+  }
+
+  function connect() {
+    const token  = document.getElementById('tokenInput').value.trim();
+    const server = document.getElementById('serverUrl').value.trim();
+    const chatId = document.getElementById('chatIdInput').value.trim();
+
+    if (!token) { log('❌ Pega el Access Token primero', 'err'); return; }
+
+    if (socket) socket.disconnect();
+
+    log(`Conectando a ${server}...`, 'info');
+
+    socket = io(server, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    });
+
+    socket.on('connect', () => {
+      log(`✓ Socket conectado: ${socket.id}`, 'ok');
+      setStatus(true);
+      if (chatId) document.getElementById('chatIdDisplay').textContent = `Chat: ${chatId}`;
+    });
+
+    socket.on('connected', (data) => {
+      log(`✓ Autenticado como usuario: ${data.userId}`, 'ok');
+    });
+
+    socket.on('disconnect', () => {
+      log('✗ Desconectado', 'err');
+      setStatus(false);
+    });
+
+    socket.on('connect_error', (err) => {
+      log(`✗ Error de conexión: ${err.message}`, 'err');
+      setStatus(false);
+    });
+
+    socket.on('error', (data) => {
+      log(`✗ Error del servidor: ${data.message}`, 'err');
+    });
+
+    // Recibir mensaje
+    socket.on('chat:message', (msg) => {
+      log(`💬 Mensaje recibido${msg.flagged ? ' [FLAGGED]' : ''}: "${msg.body.substring(0,50)}..."`, msg.flagged ? 'warn' : 'ok');
+      addMessage(msg);
+    });
+
+    // Indicador de escritura
+    socket.on('chat:typing', (data) => {
+      const indicator = document.getElementById('typingIndicator');
+      if (data.isTyping) {
+        indicator.style.display = 'block';
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          indicator.style.display = 'none';
+        }, 3000);
+      } else {
+        indicator.style.display = 'none';
+      }
+    });
+
+    // Confirmación de lectura
+    socket.on('chat:read', (data) => {
+      log(`✓ Mensajes leídos en chat ${data.chatId}`, 'info');
+    });
+  }
+
+  function disconnect() {
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+    setStatus(false);
+    log('Desconectado manualmente', 'info');
+  }
+
+  function sendMessage() {
+    const input  = document.getElementById('msgInput');
+    const chatId = document.getElementById('chatIdInput').value.trim();
+    const body   = input.value.trim();
+
+    if (!socket?.connected) { log('❌ No conectado', 'err'); return; }
+    if (!chatId) { log('❌ Ingresa el Chat ID', 'err'); return; }
+    if (!body)   return;
+
+    socket.emit('chat:send', { chatId, body }, (response) => {
+      if (response?.ok) {
+        log(`✓ Mensaje enviado: ${response.messageId}`, 'ok');
+      }
+    });
+
+    input.value = '';
+    input.style.height = 'auto';
+
+    // Detener typing
+    socket.emit('chat:typing', { chatId, isTyping: false });
+  }
+
+  function sendTest(text) {
+    document.getElementById('msgInput').value = text;
+    sendMessage();
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function handleTyping() {
+    const chatId = document.getElementById('chatIdInput').value.trim();
+    if (!socket?.connected || !chatId) return;
+
+    socket.emit('chat:typing', { chatId, isTyping: true });
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      socket.emit('chat:typing', { chatId, isTyping: false });
+    }, 2000);
+  }
+
+  function addMessage(msg) {
+    const messages = document.getElementById('messages');
+
+    // Limpiar placeholder
+    const placeholder = messages.querySelector('div[style*="margin-top"]');
+    if (placeholder) placeholder.remove();
+
+    if (msg.flagged && !msg.isMe) {
+      // Mostrar banner de advertencia para receptor
+      const warning = document.createElement('div');
+      warning.className = 'flag-warning';
+      warning.innerHTML = `⚠️ <strong>Contenido filtrado</strong><br>${msg.body || '[contenido bloqueado]'}`;
+      messages.appendChild(warning);
+    } else {
+      const div = document.createElement('div');
+      div.className = `msg ${msg.isMe ? 'sent' : 'recv'}${msg.flagged ? ' flagged' : ''}`;
+      const time = new Date(msg.createdAt).toLocaleTimeString('es-CO', {hour:'2-digit',minute:'2-digit'});
+      div.innerHTML = `
+        ${msg.body}
+        <div class="msg-meta">
+          ${msg.sender?.username || ''} · ${time}
+          ${msg.flagged ? ' · <span style="color:#F59E0B">⚠ flaggeado</span>' : ''}
+        </div>
+      `;
+      messages.appendChild(div);
+    }
+
+    messages.scrollTop = messages.scrollHeight;
+  }
+</script>
+</body>
+</html>
