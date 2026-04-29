@@ -1,12 +1,13 @@
-{
+﻿{
   "name": "duna-backend",
   "version": "0.1.0",
-  "description": "D-una — Marketplace P2P Hiperlocal · Backend API",
+  "description": "D-una â€” Marketplace P2P Hiperlocal Â· Backend API",
   "scripts": {
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
+    "start:render": "nest build && node dist/main.js",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "ts-node prisma/seed.ts",
@@ -56,3 +57,4 @@
     "typescript": "^5.3.3"
   }
 }
+
