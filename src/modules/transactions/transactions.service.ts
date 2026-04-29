@@ -1,5 +1,5 @@
 // src/modules/transactions/transactions.service.ts — D-una
-// Máquina de estados finita + lógica de escrow + integración Wompi.
+// Máquina de estados finita + lógica de escrow + integración Wompi/MercadoPago.
 
 import {
   Injectable, Logger, BadRequestException,
@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService }        from '../../common/prisma/prisma.service';
 import { WompiService }         from './wompi.service';
+import { MercadoPagoService }   from './mercadopago.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TransactionStatus }    from '@prisma/client';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
@@ -39,6 +40,7 @@ export class TransactionsService {
   constructor(
     private readonly prisma:         PrismaService,
     private readonly wompi:          WompiService,
+    private readonly mp:             MercadoPagoService,
     private readonly notifications:  NotificationsService,
   ) {}
 
@@ -320,5 +322,52 @@ export class TransactionsService {
     const field = role === 'buyer' ? 'buyerId' : 'sellerId';
     if (tx[field] !== userId) throw new ForbiddenException('Sin acceso.');
     return tx;
+  }
+
+  // ── Webhook MercadoPago → PAID_HELD ──────────────────────
+  async handleMercadoPagoWebhook(
+    payload:   any,
+    signature: string,
+    requestId: string,
+  ): Promise<void> {
+    // Verificar firma en producción
+    if (process.env.NODE_ENV === 'production') {
+      this.mp.verifyWebhookSignature(JSON.stringify(payload), signature, requestId);
+    }
+
+    // MP envía distintos tipos de notificaciones
+    const topic = payload?.type || payload?.topic;
+    if (topic !== 'payment') return; // solo nos interesan pagos
+
+    const paymentId = payload?.data?.id || payload?.id;
+    if (!paymentId) return;
+
+    // Consultar el estado real del pago en MP
+    const payment = await this.mp.getPaymentStatus(String(paymentId));
+    const reference = payment.externalReference; // nuestro transactionId
+
+    const tx = await this.prisma.transaction.findUnique({ where: { id: reference } });
+    if (!tx) {
+      this.logger.warn(`Webhook MP: transacción no encontrada ${reference}`);
+      return;
+    }
+
+    if (payment.status === 'approved' && tx.status === 'PENDING_PAYMENT') {
+      await this.transition(tx.id, 'PAID_HELD', null, {
+        providerTxId:    String(paymentId),
+        paymentProvider: 'mercadopago',
+        paymentMethod:   'mp',
+      });
+      await this.notifications.send(tx.sellerId, 'nueva_venta', {
+        transactionId: tx.id,
+        amount:        Number(tx.amountCop),
+      });
+      this.logger.log(`MP pago aprobado: tx ${tx.id} → PAID_HELD`);
+    }
+
+    if (['rejected', 'cancelled'].includes(payment.status)) {
+      await this.transition(tx.id, 'CANCELLED', null, { reason: payment.status });
+      this.logger.log(`MP pago rechazado: tx ${tx.id} → CANCELLED`);
+    }
   }
 }

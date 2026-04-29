@@ -73,7 +73,7 @@ export class TransactionsController {
   }
 }
 
-// ── Webhook Wompi (ruta separada, sin JWT) ─────────────────
+// ── Webhook MercadoPago (ruta separada, sin JWT) ───────────
 @Controller('webhooks')
 export class WebhooksController {
   constructor(private readonly txService: TransactionsService) {}
@@ -81,8 +81,6 @@ export class WebhooksController {
   /**
    * POST /v1/webhooks/wompi
    * Wompi notifica cambios de estado del pago.
-   * Verifica firma HMAC antes de procesar.
-   * Es pública — Wompi no envía JWT.
    */
   @Public()
   @Post('wompi')
@@ -92,5 +90,21 @@ export class WebhooksController {
     @Headers('x-event-checksum') signature: string,
   ) {
     return this.txService.handleWompiWebhook(payload, signature);
+  }
+
+  /**
+   * POST /v1/webhooks/mercadopago
+   * MercadoPago notifica cambios de estado del pago.
+   * Verifica firma HMAC antes de procesar.
+   */
+  @Public()
+  @Post('mercadopago')
+  @HttpCode(HttpStatus.OK)
+  async mercadoPagoWebhook(
+    @Body() payload: any,
+    @Headers('x-signature')   signature:  string,
+    @Headers('x-request-id')  requestId:  string,
+  ) {
+    return this.txService.handleMercadoPagoWebhook(payload, signature, requestId);
   }
 }
