@@ -1,4 +1,4 @@
-// src/main.ts — Bootstrap de D-una
+// src/main.ts â€” Bootstrap de D-una
 
 import { NestFactory }            from '@nestjs/core';
 import { ValidationPipe }         from '@nestjs/common';
@@ -12,7 +12,7 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'],
   });
 
-  // ── Seguridad HTTP ─────────────────────────────────────────
+  // â”€â”€ Seguridad HTTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.use(helmet({
     contentSecurityPolicy: false, // desactivado para el cliente de prueba
     hsts: { maxAge: 31_536_000, includeSubDomains: true },
@@ -22,15 +22,15 @@ async function bootstrap() {
 
   app.enableCors({ origin: '*', credentials: true });
 
-  // ── Archivos estáticos (cliente de prueba del chat) ────────
+  // â”€â”€ Archivos estÃ¡ticos (cliente de prueba del chat) â”€â”€â”€â”€â”€â”€â”€â”€
   app.useStaticAssets(join(__dirname, '..', 'public'));
 
-  // ── Prefijo global de versión ──────────────────────────────
+  // â”€â”€ Prefijo global de versiÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.setGlobalPrefix('v1', {
-    exclude: ['/'],  // excluir la raíz para archivos estáticos
+    exclude: ['/'],  // excluir la raÃ­z para archivos estÃ¡ticos
   });
 
-  // ── Validación global de DTOs ──────────────────────────────
+  // â”€â”€ ValidaciÃ³n global de DTOs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -40,11 +40,11 @@ async function bootstrap() {
     }),
   );
 
-  // ── Arranque ───────────────────────────────────────────────
+  // â”€â”€ Arranque â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const port = parseInt(process.env.PORT ?? '3000');
-  await app.listen(port);
-  console.log(`🚀 D-una API corriendo en http://localhost:${port}/v1`);
-  console.log(`💬 Chat test client en http://localhost:${port}/chat-test.html`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`ðŸš€ D-una API corriendo en http://localhost:${port}/v1`);
+  console.log(`ðŸ’¬ Chat test client en http://localhost:${port}/chat-test.html`);
 }
 
 bootstrap();
