@@ -79,7 +79,7 @@ export class TransactionsService {
     await this.logEvent(tx.id, 'transaction_created', { buyerId, postId: post.id }, buyerId);
 
     // Crear link de pago en Wompi (sandbox: retorna URL simulada)
-    const paymentLink = await this.wompi.createPaymentLink({
+    const paymentLink = await this.mp.createPaymentLink({
       transactionId: tx.id,
       amountCop:     Number(post.priceCop),
       paymentMethod: dto.paymentMethod,
