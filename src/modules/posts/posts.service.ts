@@ -114,4 +114,7 @@ async findByUser(userId: string) {
     orderBy: { createdAt: 'desc' },
   });
   return posts.map(p => ({ ...p, priceCop: Number(p.priceCop) }));
+  }
 }
+
+
