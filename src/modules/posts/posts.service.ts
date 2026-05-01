@@ -107,11 +107,11 @@ export class PostsService {
     await this.prisma.post.update({ where: { id }, data: { status: 'REMOVED' } });
   }
 
-  async findByUser(userId: string) {
-    return this.prisma.post.findMany({
-      where:   { sellerId: userId, status: { not: 'REMOVED' } },
-      include: { images: { orderBy: { position: 'asc' } } },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
+async findByUser(userId: string) {
+  const posts = await this.prisma.post.findMany({
+    where:   { sellerId: userId, status: { not: 'REMOVED' } },
+    include: { images: { orderBy: { position: 'asc' } } },
+    orderBy: { createdAt: 'desc' },
+  });
+  return posts.map(p => ({ ...p, priceCop: Number(p.priceCop) }));
 }
