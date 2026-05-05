@@ -106,15 +106,19 @@ export class WompiService {
 
   // ── 3. Verificar firma HMAC del webhook ───────────────────
   verifySignature(payload: any, signature: string): void {
-    // Wompi firma: SHA256(properties concatenados + secret)
-    // Ver: https://docs.wompi.co/docs/colombia/eventos/
+    // Omitir verificacion si no hay secret configurado (sandbox/desarrollo)
+    if (!this.secret || this.secret === 'test_placeholder' || this.secret === 'placeholder') {
+      this.logger.warn('Wompi signature check omitido — sin secret configurado');
+      return;
+    }
+
     const { id, status, amount_in_cents, currency, created_at } = payload?.data?.transaction ?? {};
     const checksum_props = `${id}${status}${amount_in_cents}${currency}${created_at}${this.secret}`;
     const expected = crypto.createHash('sha256').update(checksum_props).digest('hex');
 
     if (expected !== signature) {
-      this.logger.error('Firma Wompi inválida — posible webhook falso');
-      throw new Error('Firma del webhook inválida.');
+      this.logger.error('Firma Wompi invalida — posible webhook falso');
+      throw new Error('Firma del webhook invalida.');
     }
   }
 
