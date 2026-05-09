@@ -24,7 +24,7 @@ export class AuthService {
     const key   = `otp:rate:${normalized}`;
     const count = await this.redis.incr(key);
     if (count === 1) await this.redis.expire(key, 3600);
-    if (count > 3) throw new BadRequestException('Demasiados intentos. Espera una hora.');
+    if (count > 10) throw new BadRequestException('Demasiados intentos. Espera una hora.');
     const code = this.otp.generate();
     await this.prisma.otpToken.create({
       data: { phone: normalized, code, expiresAt: new Date(Date.now() + 10 * 60 * 1000) },
