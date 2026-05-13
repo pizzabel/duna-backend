@@ -3,10 +3,14 @@ import {
   Injectable, NotFoundException, ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AntifraudService } from '../antifraud/antifraud.service';
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly antifraud: AntifraudService,
+  ) {}
 
   // ── Crear o reutilizar chat sobre una publicación ─────────
   async create(postId: string, buyerId: string) {
@@ -18,7 +22,6 @@ export class ChatService {
       throw new ForbiddenException('No puedes chatear contigo mismo.');
     }
 
-    // Reusar chat si ya existe (UNIQUE postId + buyerId)
     const existing = await this.prisma.chat.findUnique({
       where: { postId_buyerId: { postId, buyerId } },
       include: { post: { select: { title: true, priceCop: true } } },
@@ -80,7 +83,6 @@ export class ChatService {
 
   // ── Mensajes paginados de un chat ─────────────────────────
   async getMessages(chatId: string, userId: string, cursor?: string, limit = 30) {
-    // Verificar acceso
     const chat = await this.prisma.chat.findFirst({
       where: { id: chatId, OR: [{ buyerId: userId }, { sellerId: userId }] },
     });
@@ -102,7 +104,6 @@ export class ChatService {
         id:        m.id,
         chatId:    m.chatId,
         sender:    m.sender,
-        // Mostrar cuerpo redactado al receptor si el mensaje fue flaggeado
         body:      m.senderId === userId
           ? m.body
           : (m.flagged ? m.redactedBody : m.body),
@@ -112,6 +113,41 @@ export class ChatService {
         createdAt: m.createdAt,
       })),
       nextCursor: hasMore ? messages[messages.length - 1].id : null,
+    };
+  }
+
+  // ── Crear mensaje REST (sin WebSocket) ────────────────────
+  async createMessage(chatId: string, senderId: string, body: string) {
+    const chat = await this.prisma.chat.findFirst({
+      where: { id: chatId, OR: [{ buyerId: senderId }, { sellerId: senderId }] },
+    });
+    if (!chat) throw new ForbiddenException('Sin acceso a este chat.');
+
+    const scan = this.antifraud.scan(body);
+
+    const message = await this.prisma.message.create({
+      data: {
+        chatId,
+        senderId,
+        body,
+        flagged: scan.flagged,
+        flagReasons: scan.flags,
+        redactedBody: scan.flagged ? scan.redactedBody : null,
+      },
+      include: {
+        sender: { select: { id: true, username: true, avatarUrl: true } },
+      },
+    });
+
+    return {
+      id: message.id,
+      chatId: message.chatId,
+      senderId: message.senderId,
+      body: message.body,
+      flagged: message.flagged,
+      redactedBody: message.redactedBody,
+      sender: message.sender,
+      createdAt: message.createdAt,
     };
   }
 }
