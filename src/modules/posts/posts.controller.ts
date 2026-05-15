@@ -15,7 +15,11 @@ export class PostsController {
 
   @Get('upload-url')
   async getUploadUrl(@Query('ext') ext = 'jpg') {
-    const s3 = new S3Client({ region: process.env.AWS_REGION });
+    const s3 = new S3Client({
+      region: process.env.AWS_REGION,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    } as any);
     const key = `posts/${randomUUID()}.${ext}`;
     const command = new PutObjectCommand({
       Bucket: process.env.S3_BUCKET,
