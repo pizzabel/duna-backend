@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 
 @Controller('posts')
 export class PostsController {
-  constructor(private readonly postsService: PostsService) {}
+  constructor(private readonly postsService: PostsService) { }
 
   @Get('upload-url')
   async getUploadUrl(@Query('ext') ext = 'jpg') {
@@ -20,7 +20,7 @@ export class PostsController {
     const command = new PutObjectCommand({
       Bucket: process.env.S3_BUCKET,
       Key: key,
-      ContentType: `image/${ext}`,
+      ContentType: 'image/jpeg',
     });
     const url = await getSignedUrl(s3, command, { expiresIn: 300 });
     const publicUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
