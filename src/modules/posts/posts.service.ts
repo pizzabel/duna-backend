@@ -32,9 +32,14 @@ export class PostsService {
 
     if (dto.images?.length) {
       for (let i = 0; i < dto.images.length; i++) {
-        await this.prisma.postImage.create({
-          data: { postId, url: dto.images[i], position: i },
-        });
+        try {
+          await this.prisma.postImage.create({
+            data: { postId, url: dto.images[i], position: i },
+          });
+          console.log('IMAGEN GUARDADA:', dto.images[i]);
+        } catch (err) {
+          console.error('ERROR GUARDANDO IMAGEN:', err.message);
+        }
       }
     }
 
@@ -108,5 +113,3 @@ export class PostsService {
     return posts.map(p => ({ ...p, priceCop: Number(p.priceCop) }));
   }
 }
-
-
