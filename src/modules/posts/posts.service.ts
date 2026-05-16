@@ -28,6 +28,7 @@ export class PostsService {
     `;
 
     const postId = created[0].id;
+    console.log('POST ID:', postId, 'IMAGES:', dto.images);
 
     if (dto.images?.length) {
       for (let i = 0; i < dto.images.length; i++) {
