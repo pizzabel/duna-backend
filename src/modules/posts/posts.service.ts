@@ -7,11 +7,10 @@ import { UpdatePostDto } from './dto/update-post.dto';
 
 @Injectable()
 export class PostsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async create(dto: CreatePostDto, sellerId: string) {
-    // Verificar que el usuario tenga ubicación o que venga en el DTO
-    const post = await this.prisma.$executeRaw`
+    const created = await this.prisma.$queryRaw<any[]>`
       INSERT INTO posts (id, "sellerId", title, description, "categoryId",
                          "priceCop", condition, location, status)
       VALUES (
@@ -25,19 +24,11 @@ export class PostsService {
         ST_MakePoint(${dto.lng}, ${dto.lat})::geography,
         'ACTIVE'::"PostStatus"
       )
-    `;
-
-    // Obtener el post recién creado
-    const created = await this.prisma.$queryRaw<any[]>`
-      SELECT id FROM posts
-      WHERE "sellerId" = ${sellerId}::uuid
-      ORDER BY "createdAt" DESC
-      LIMIT 1
+      RETURNING id
     `;
 
     const postId = created[0].id;
 
-    // Insertar imágenes si vienen
     if (dto.images?.length) {
       for (let i = 0; i < dto.images.length; i++) {
         await this.prisma.postImage.create({
@@ -92,10 +83,10 @@ export class PostsService {
     return this.prisma.post.update({
       where: { id },
       data: {
-        ...(dto.title       && { title: dto.title }),
+        ...(dto.title && { title: dto.title }),
         ...(dto.description && { description: dto.description }),
-        ...(dto.priceCop    && { priceCop: BigInt(dto.priceCop) }),
-        ...(dto.condition   && { condition: dto.condition as any }),
+        ...(dto.priceCop && { priceCop: BigInt(dto.priceCop) }),
+        ...(dto.condition && { condition: dto.condition as any }),
       },
     });
   }
@@ -107,13 +98,13 @@ export class PostsService {
     await this.prisma.post.update({ where: { id }, data: { status: 'REMOVED' } });
   }
 
-async findByUser(userId: string) {
-  const posts = await this.prisma.post.findMany({
-    where:   { sellerId: userId, status: { not: 'REMOVED' } },
-    include: { images: { orderBy: { position: 'asc' } } },
-    orderBy: { createdAt: 'desc' },
-  });
-  return posts.map(p => ({ ...p, priceCop: Number(p.priceCop) }));
+  async findByUser(userId: string) {
+    const posts = await this.prisma.post.findMany({
+      where: { sellerId: userId, status: { not: 'REMOVED' } },
+      include: { images: { orderBy: { position: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return posts.map(p => ({ ...p, priceCop: Number(p.priceCop) }));
   }
 }
 
