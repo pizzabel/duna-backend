@@ -1,46 +1,68 @@
 ﻿import {
-  Injectable, UnauthorizedException, BadRequestException,
+  Injectable, UnauthorizedException, BadRequestException, Logger,
 } from '@nestjs/common';
-import { JwtService }     from '@nestjs/jwt';
-import { ConfigService }  from '@nestjs/config';
-import { PrismaService }  from '../../common/prisma/prisma.service';
-import { RedisService }   from '../../common/redis/redis.service';
-import { OtpService }     from './otp.service';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import * as Twilio from 'twilio';
 
 const REFRESH_TTL_DAYS = 30;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger('AuthService');
+  private readonly twilioClient: Twilio.Twilio;
+  private readonly verifySid: string;
+
   constructor(
-    private readonly prisma:  PrismaService,
-    private readonly jwt:     JwtService,
-    private readonly redis:   RedisService,
-    private readonly otp:     OtpService,
-    private readonly config:  ConfigService,
-  ) {}
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
+    private readonly redis: RedisService,
+    private readonly config: ConfigService,
+  ) {
+    this.twilioClient = (Twilio as any)(
+      this.config.getOrThrow('TWILIO_ACCOUNT_SID'),
+      this.config.getOrThrow('TWILIO_AUTH_TOKEN'),
+    );
+    this.verifySid = this.config.getOrThrow('TWILIO_VERIFY_SID');
+  }
 
   async requestOtp(phone: string): Promise<void> {
     const normalized = this.normalizePhone(phone);
-    const key   = `otp:rate:${normalized}`;
+    const key = `otp:rate:${normalized}`;
     const count = await this.redis.incr(key);
     if (count === 1) await this.redis.expire(key, 3600);
     if (count > 10) throw new BadRequestException('Demasiados intentos. Espera una hora.');
-    const code = this.otp.generate();
-    await this.prisma.otpToken.create({
-      data: { phone: normalized, code, expiresAt: new Date(Date.now() + 30 * 60 * 1000) },
-    });
-    await this.otp.send(normalized, code);
+
+    try {
+      await this.twilioClient.verify.v2
+        .services(this.verifySid)
+        .verifications.create({ to: normalized, channel: 'sms' });
+      this.logger.log(`OTP enviado via Twilio Verify a ${normalized}`);
+    } catch (err) {
+      this.logger.error(`Twilio Verify error: ${err.message}`);
+      throw new BadRequestException('No se pudo enviar el codigo. Intenta de nuevo.');
+    }
   }
 
   async verifyOtp(phone: string, code: string): Promise<{ accessToken: string; refreshToken: string; isNewUser: boolean }> {
     const normalized = this.normalizePhone(phone);
-    const token = await this.prisma.otpToken.findFirst({
-      where: { phone: normalized, used: false, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!token) throw new UnauthorizedException('Codigo invalido o expirado.');
-    if (code !== token.code) throw new UnauthorizedException('Codigo incorrecto.');
-    await this.prisma.otpToken.update({ where: { id: token.id }, data: { used: true } });
+
+    try {
+      const check = await this.twilioClient.verify.v2
+        .services(this.verifySid)
+        .verificationChecks.create({ to: normalized, code });
+
+      if (check.status !== 'approved') {
+        throw new UnauthorizedException('Codigo invalido o expirado.');
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
+      this.logger.error(`Twilio Verify check error: ${err.message}`);
+      throw new UnauthorizedException('Codigo invalido o expirado.');
+    }
+
     let user = await this.prisma.user.findUnique({ where: { phone: normalized } });
     const isNewUser = !user;
     if (!user) {
