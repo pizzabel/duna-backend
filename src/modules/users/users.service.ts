@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService }    from '../../common/prisma/prisma.service';
+import { PrismaService } from '../../common/prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findById(id: string) {
     const user = await this.prisma.user.findUnique({
@@ -35,13 +35,12 @@ export class UsersService {
 
   async updateProfile(id: string, dto: UpdateProfileDto) {
     const data: any = {};
-    if (dto.fullName)     data.fullName     = dto.fullName;
-    if (dto.username)     data.username     = dto.username;
-    if (dto.bio)          data.bio          = dto.bio;
+    if (dto.fullName) data.fullName = dto.fullName;
+    if (dto.username) data.username = dto.username;
+    if (dto.bio) data.bio = dto.bio;
     if (dto.neighborhood) data.neighborhood = dto.neighborhood;
-    if (dto.city)         data.city         = dto.city;
+    if (dto.city) data.city = dto.city;
 
-    // Actualizar ubicación PostGIS si vienen coordenadas
     if (dto.lat !== undefined && dto.lng !== undefined) {
       await this.prisma.$executeRaw`
         UPDATE users
@@ -59,5 +58,13 @@ export class UsersService {
         avatarUrl: true, bio: true, neighborhood: true, city: true,
       },
     });
+  }
+
+  async savePushToken(userId: string, token: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { pushToken: token } as any,
+    });
+    return { success: true };
   }
 }
